@@ -8,8 +8,37 @@
 ## Hardware Components
 
 ### Microcontroller
-- **ESP32-S3**: Dual-core processor with WiFi/BLE capabilities
-- Custom PCB board design for power management and peripherals
+- **ESP32-S3** (v3.0): Dual-core processor with WiFi/BLE capabilities
+  - **USB**: Built-in CDC/JTAG (no external USB-Serial needed)
+  - **Bootload/Reset**: Buttons (not DTR/RTS)
+- **ESP32-PICO-D4** (v1.5-v2.0): Earlier variant with external CP2102/CP2104 serial chip
+
+### Real-Time Clock (RTC)
+- **v3.0**: External 32KHz Crystal (higher accuracy)
+- **v1.5-v2.0**: PCF8563 I2C RTC chip
+- **v1.0**: DS3231 I2C RTC chip
+- Watchy library: Alarm2 triggers every minute to wake ESP32 from deep sleep
+- I2C connected via Wire library
+
+### Display
+- **Specs**: E-ink/E-paper display (200x200 pixels, black & white only)
+- **v3.0 Model**: GDEY0154D67 (high contrast)
+- **v1.5-v2.0 Model**: GDEH0154D67
+- **Connector**: AFC07-S24ECC-00 FPC ribbon cable
+  - Gold pins must face UP
+  - Pull black tabs before inserting cable, push back to secure
+- Driver: GxEPD2 Arduino library with SPI communication
+- Drawing via Adafruit GFX API: `display.drawRect()`, `display.drawBitmap()`, `display.println()`
+
+### Power / Battery
+- Battery: 3.7V LiPo, 200mAh (402030 form factor); regulator ME6211C33M5G-N LDO
+- Baseline life: 5-7 days timekeeping only; 2-3 days with WiFi data fetching
+- ESP32 wakes every 60s (RTC alarm) to update display, then deep sleeps — `init()` handles this automatically
+- Coding rules to preserve battery:
+  - Turn off WiFi/BLE radios right after use — don't leave them on
+  - Call `display.hibernate()` after display updates (automatic inside standard Watchy class flow; must call manually if bypassing it)
+  - Skip BMA423 accelerometer init if watchface doesn't need step counting/gestures
+  - RTC alarm interval can be changed beyond 60s for watchfaces that don't need per-minute updates (e.g. word clocks)
 
 ### Key Sensors & Modules
 - **BMA423**: 6-axis accelerometer (motion detection, step counting)
@@ -61,9 +90,40 @@ Each watchface has:
 ### `/extras/` - Additional Resources
 - `WatchFaces/index.json` - Metadata for watchface discovery/catalog
 
-## Build System
+## Build System & Setup
 
-- **Language**: Arduino C++ (compatible with PlatformIO/Arduino IDE)
+### Arduino IDE Configuration
+1. Download latest [Arduino IDE](https://www.arduino.cc/en/software)
+2. File > Preferences > Additional Board Manager URLs:
+   - `https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`
+3. Tools > Board > Boards Manager > Install **esp32 by Espressif Systems** (NOT Arduino ESP32 Boards)
+4. Sketch > Include Library > Manage Libraries > Install **Watchy** (latest version)
+5. Install all dependencies: GxEPD2, WiFiManager, rtc_pcf8563, etc.
+
+### Board Settings for Upload
+- **Board**: ESP32 Arduino > ESP32S3 Dev Module
+- **Flash Size**: 8MB (64Mb)
+- **Partition Scheme**: 8M with spiffs
+- Leave everything else as default
+
+### Bootloader Mode (for firmware upload)
+1. Plug USB into Watchy
+2. Press & hold top 2 buttons (Back & Up) for 4+ seconds
+3. Release Back button first, then Up button
+4. ESP32S3 device should enumerate a serial port (COM/cu.*)
+5. Upload firmware via Arduino IDE
+
+### Reset Watchy
+1. Press & hold top 2 buttons (Back & Up) for 4+ seconds
+2. Release Up button first, then Back button
+3. Wait a few seconds for boot and screen refresh
+
+### Flashing Notes
+- Use USB **data cable** (not charge-only)
+- Try different USB ports if serial port not found
+- After upload, reset device to run new firmware
+
+- **Language**: Arduino C++ (compatible with Arduino IDE, PlatformIO)
 - **Build Artifacts**: Compiled firmware for ESP32-S3
 - Format script: `src/format.sh` - Code formatting tool
 
@@ -72,10 +132,24 @@ Each watchface has:
 ### Watchfaces
 Custom watchface implementations inherit from or follow the Watchy pattern:
 1. Extend main Watchy class or implement display update functions
-2. Override `drawWatchFace()` or similar display methods
+2. Override `drawWatchFace()` — the one required method, called each wake cycle
 3. Handle button inputs for interactions
 4. Manage display updates efficiently (e-paper refresh is slow)
 5. Each watchface is a complete `.ino` sketch with supporting headers
+
+Drawing API available on the `display` object inside `drawWatchFace()`:
+- `display.setFont()` — select typeface
+- `display.setCursor(x, y)` — position text
+- `display.print()` / `display.println()` — render text
+- `display.drawBitmap(x, y, array, width, height, color)` — render images
+- `display.drawRect()` — shapes
+- Current time is available via a `currentTime` struct (`.Hour`, `.Minute`, etc.)
+
+External tools for watchface dev (see `docs/create-watchface`):
+- **Watchy Watchface Designer** — drag-and-drop web tool, live preview, generates code
+- **WatchySim** — simulator for testing without flashing hardware
+- **image2cpp** — converts images to byte arrays for `drawBitmap`
+- **truetype2gfx** — converts TTF fonts to GFX font headers
 
 ### Configuration Pattern
 Each example uses a `settings.h` file containing:
@@ -123,9 +197,21 @@ public:
 - `library.json` - Library configuration (dependencies, etc.)
 
 ## Documentation Resources
-- Full docs: https://github.com/sqfmi/watchy-docs
-- Hardware schematics and board design specs available in docs
-- API reference and watchface development guide in docs repository
+- Full docs site: https://watchy.sqfmi.com/docs (source: [sqfmi/watchy-docs](https://github.com/sqfmi/watchy-docs))
+  - `/docs/getting-started` — assembly, Arduino setup, WiFi captive-portal config (192.168.4.1)
+  - `/docs/libs` — library/API reference (GxEPD2, DS3232RTC, BMA423, WiFiManager, Arduino_JSON)
+  - `/docs/create-watchface` — watchface dev guide, design tools
+  - `/docs/battery-life` — power optimization
+  - `/docs/hardware` — pinout/pin map lives in the library's `config.h`, not the docs page itself; revision comparison table
+  - `/docs/faqs` — troubleshooting
+  - `/docs/legacy`, `/docs/3D`, `/docs/license`
+- Watchface community gallery: https://watchy.sqfmi.com/watchfaces
+
+## Known Gotchas
+- **GxEPD2 display ghosting/static**: requires GxEPD2 library **v1.2.16+** (fixes GDEH0154D67 driver bug); also check FPC cable is fully seated with lock engaged
+- **"library DS3232RTC claims to run on avr architecture(s)..."** compiler warning is expected/harmless on ESP32 builds
+- **esptool failures on macOS Big Sur**: known issue, see [espressif/arduino-esp32#4408](https://github.com/espressif/arduino-esp32/issues/4408)
+- Screen removal: never pry glass or use a heat gun (>60°C damages it) — use dental floss technique instead
 
 ## Common Tasks
 
