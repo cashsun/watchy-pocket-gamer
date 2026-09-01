@@ -68,3 +68,8 @@ manifest.mf
 nbbuild.xml
 nbproject
 .vscode
+
+# PlatformIO build output and downloaded library deps
+.pio/
+.pio
+CMakeListsPrivate.txt

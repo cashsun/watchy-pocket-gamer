@@ -73,6 +73,7 @@ Complete watchface examples with their own custom rendering logic:
 
 | Watchface | Files | Features |
 |-----------|-------|----------|
+| **StarField** *(default — ships pre-flashed on the hardware)* | `StarField.ino`, `Watchy_7_SEG.cpp/h`, `Dusk2Dawn.cpp/h`, `moonPhaser.cpp/h`, `icons.h` | HUD-style 7-seg; dusk/dawn solar arc, moon phase, step count, battery, WiFi. Vendored from [Prokuon/watchy-starfield](https://github.com/Prokuon/watchy-starfield). Class name is still `Watchy7SEG`. BACK = dark/light, UP/DOWN = 12/24h. Set `#define LOC lat, lon, tz` in `Watchy_7_SEG.cpp` for correct sun times. |
 | **7_SEG** | `7_SEG.ino`, `Watchy_7_SEG.cpp/h` | 7-segment display, multiple fonts, retro look |
 | **Basic** | `Basic.ino` | Minimal example, good starting point |
 | **DOS** | `DOS.ino`, `Watchy_DOS.cpp/h` | IBM BIOS font, terminal aesthetic |
