@@ -73,6 +73,7 @@ Complete watchface examples with their own custom rendering logic:
 
 | Watchface | Files | Features |
 |-----------|-------|----------|
+| **StarField** *(default — ships pre-flashed on the hardware)* | `StarField.ino`, `Watchy_7_SEG.cpp/h`, `Dusk2Dawn.cpp/h`, `moonPhaser.cpp/h`, `icons.h` | HUD-style 7-seg; dusk/dawn solar arc, moon phase, step count, battery, WiFi. Vendored from [Prokuon/watchy-starfield](https://github.com/Prokuon/watchy-starfield). Class name is still `Watchy7SEG`. BACK = dark/light, UP/DOWN = 12/24h. Set `#define LOC lat, lon, tz` in `Watchy_7_SEG.cpp` for correct sun times. |
 | **7_SEG** | `7_SEG.ino`, `Watchy_7_SEG.cpp/h` | 7-segment display, multiple fonts, retro look |
 | **Basic** | `Basic.ino` | Minimal example, good starting point |
 | **DOS** | `DOS.ino`, `Watchy_DOS.cpp/h` | IBM BIOS font, terminal aesthetic |
@@ -119,9 +120,28 @@ Each watchface has:
 3. Wait a few seconds for boot and screen refresh
 
 ### Flashing Notes
-- Use USB **data cable** (not charge-only)
+- Use USB **data cable** (not charge-only) — symptom of a charge-only/bad cable: device LED stays off, or port enumerates but chip never responds (see arduino-cli notes below); swapping cables fixes it
 - Try different USB ports if serial port not found
 - After upload, reset device to run new firmware
+
+### Flashing via arduino-cli (verified working, no Arduino IDE GUI)
+1. Install: `brew install arduino-cli`
+2. Config + ESP32 core:
+   ```
+   arduino-cli config init
+   arduino-cli config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+   arduino-cli core update-index
+   arduino-cli core install esp32:esp32
+   ```
+3. Registry libs: `arduino-cli lib install "Adafruit GFX Library" "Arduino_JSON" "DS3232RTC" "NTPClient"`
+4. Git-only libs (clone into `~/Documents/Arduino/libraries/`): `GxEPD2` (ZinggJM/GxEPD2, master is fine, v1.6.9+ has the ghosting fix), `WiFiManager` (tzapu/WiFiManager, master fine). **`Rtc_Pcf8563` (orbitalair/Rtc_Pcf8563) must be pinned to tag `1.0.3`** — master HEAD adds a `WireBase&` constructor overload that doesn't compile against ESP32 core 3.x's `Wire` (`WireBase does not name a type`). `git checkout 1.0.3` after cloning.
+5. Symlink this repo into the libraries dir so sketches can `#include <Watchy.h>`: `ln -s /path/to/watchy-pocket-gamer ~/Documents/Arduino/libraries/Watchy`
+6. **Use the built-in `esp32:esp32:watchy` board FQBN**, not a generic `ESP32S3 Dev Module`/`esp32:esp32:esp32s3` FQBN — it exists in the esp32 core's `boards.txt` and sets correct flash size/partitions/pins automatically. It only actually matches **v3.0 (ESP32-S3)** hardware; for pre-v3.0 boards (ESP32-PICO-D4) you must also pick the revision (step 7).
+7. **Pre-v3.0 boards need an explicit hardware revision**, or `config.h` silently defaults to `ARDUINO_WATCHY_V20` (with only a compile-time `#pragma message` warning, easy to miss in build output). Getting this wrong compiles and flashes fine but **breaks the UP button** (pin 32 on v1.0/v1.5 vs pin 35 on v2.0 — see Known Gotchas). Pass it via FQBN option: `esp32:esp32:watchy:Revision=v20` (or `v10`, `v15`). No way to auto-detect revision from the chip — ask the user or try v2.0 first (most common) and verify the UP button works before assuming it's correct.
+8. Compile: `arduino-cli compile --fqbn "esp32:esp32:watchy:Revision=v20" examples/WatchFaces/<Name>`
+9. Identify the port: pre-v3.0 boards with a CP2102/CP2104 adapter show up as `/dev/cu.usbserial-*` (macOS), not `/dev/cu.usbmodem-*` — the latter is the native-USB-CDC naming used by true ESP32-S3 (v3.0) boards. Don't assume port type from the CLAUDE.md hardware table alone — check `ls /dev/cu.*` and match against which cable/device is actually live (`ioreg`/`system_profiler` can be sandboxed and return nothing — the port list itself plus asking the user "which cable/LED is on" is more reliable).
+10. Upload: `arduino-cli upload -p /dev/cu.usbserial-XXXX --fqbn "esp32:esp32:watchy:Revision=v20,UploadSpeed=115200" examples/WatchFaces/<Name>`. **If upload fails right after "Changing baud rate to 921600... Changed." with "Unable to verify flash chip connection" / "No more data to read from serial port"**, the adapter/cable can't sustain 921600 baud reliably — drop to `UploadSpeed=115200` (slower, ~73s vs a few seconds, but reliable).
+11. Boards with a CP2102/CP2104 adapter (pre-v3.0) auto-enter bootloader via DTR/RTS toggling during upload — **no manual button hold needed**, unlike native-USB-CDC v3.0 boards where DTR/RTS doesn't exist and the manual Back+Up button sequence is mandatory.
 
 - **Language**: Arduino C++ (compatible with Arduino IDE, PlatformIO)
 - **Build Artifacts**: Compiled firmware for ESP32-S3
@@ -212,6 +232,9 @@ public:
 - **"library DS3232RTC claims to run on avr architecture(s)..."** compiler warning is expected/harmless on ESP32 builds
 - **esptool failures on macOS Big Sur**: known issue, see [espressif/arduino-esp32#4408](https://github.com/espressif/arduino-esp32/issues/4408)
 - Screen removal: never pry glass or use a heat gun (>60°C damages it) — use dental floss technique instead
+- **UP button dead / doesn't work on watchface or in settings menu**: hardware-revision mismatch in `config.h`. `UP_BTN_PIN` is **32** on v1.0/v1.5 but **35** on v2.0 — if `config.h` isn't told which revision (no `ARDUINO_WATCHY_V10/15/20` define set), it silently defaults to v2.0 behavior via a `#pragma message` warning that's easy to miss in build output. Fix: explicitly build with the matching `Revision=v10|v15|v20` FQBN option (see arduino-cli flashing notes above) and reflash. Back/Down/Menu buttons are wired the same across v1.0-v2.0, so only UP is affected.
+- **`Rtc_Pcf8563` library master branch doesn't compile on ESP32 core 3.x**: `error: 'WireBase' does not name a type`. Pin to git tag `1.0.3`, not `master`/HEAD.
+- **arduino-cli upload dies right after baud-rate switch to 921600** ("Unable to verify flash chip connection" / "No more data to read from serial port"): the USB-serial adapter/cable can't sustain that speed. Set `UploadSpeed=115200` in the FQBN — slower but reliable.
 
 ## Common Tasks
 

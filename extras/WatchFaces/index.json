@@ -1,6 +1,15 @@
 {
     "watchfaces" : [
         {
+            "id" : "0",
+            "name" : "StarField",
+            "author" : "Prokuon",
+            "screenshot" : "https://raw.githubusercontent.com/Prokuon/watchy-starfield/HEAD/assets/screenshot.png",
+            "source" : "https://github.com/Prokuon/watchy-starfield",
+            "version" : "1.0.0",
+            "default" : true
+        },
+        {
             "id" : "1",
             "name" : "Basic",
             "author" : "SQFMI",
